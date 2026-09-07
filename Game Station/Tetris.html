@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>TETRIS — MOSCOW 1984</title>
+  <style>
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: #000; overflow: hidden;
+      font-family: "Courier New", Courier, monospace;
+      -webkit-user-select: none; user-select: none; touch-action: none;
+    }
+    #wrap {
+      display: -webkit-box; display: flex;
+      -webkit-box-orient: vertical; flex-direction: column;
+      -webkit-box-align: center; align-items: center;
+      -webkit-box-pack: center; justify-content: center;
+      width: 100%; height: 100%; background: #000;
+    }
+    canvas {
+      image-rendering: -webkit-optimize-contrast;
+      image-rendering: pixelated;
+      -ms-interpolation-mode: nearest-neighbor;
+      background: #000; display: block;
+    }
+    #pad { display: none; margin-top: 8px; width: 320px; }
+    #pad table { margin: 0 auto; border-collapse: collapse; }
+    #pad button {
+      width: 56px; height: 40px; margin: 2px;
+      background: #555; color: #fff; border: 2px solid #aaa;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 12px; font-weight: bold;
+      -webkit-appearance: none; appearance: none;
+    }
+    #pad button:active { background: #fff; color: #000; }
+    @media (pointer: coarse) { #pad { display: block; } }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="c" width="320" height="200"></canvas>
+    <div id="pad">
+      <table>
+        <tr>
+          <td></td>
+          <td><button id="bUp">ROT</button></td>
+          <td></td>
+          <td><button id="bDrop">DROP</button></td>
+        </tr>
+        <tr>
+          <td><button id="bLeft">LEFT</button></td>
+          <td><button id="bDown">DOWN</button></td>
+          <td><button id="bRight">RIGHT</button></td>
+          <td><button id="bStart">START</button></td>
+        </tr>
+      </table>
+    </div>
+  </div>
+  <script>
+  var CONFIG = {
+    "title": "TETRIS", "city": "MOSCOW", "year": 1984,
+    "cols": 10, "rows": 20, "cell": 8, "fps": 60,
+    "das": 16, "arr": 6, "linesPerLevel": 10, "maxLevel": 19,
+    "points": [0, 40, 100, 300, 1200],
+    "gravity": [48,43,38,33,28,23,18,13,8,6,5,5,5,4,4,4,3,3,3,2,2],
+    "hiKey": "tetris.moscow.1984.hi"
+  };
+
+  var EGA = {
+    BLACK:"#000000", BLUE:"#0000AA", GREEN:"#00AA00", CYAN:"#00AAAA",
+    RED:"#AA0000", MAGENTA:"#AA00AA", BROWN:"#AA5500", LGRAY:"#AAAAAA",
+    DGRAY:"#555555", BBLUE:"#5555FF", BGREEN:"#55FF55", BCYAN:"#55FFFF",
+    BRED:"#FF5555", BMAG:"#FF55FF", YELLOW:"#FFFF55", WHITE:"#FFFFFF"
+  };
+  var PIECE_COLOR = { I:EGA.BCYAN, O:EGA.YELLOW, T:EGA.BMAG, S:EGA.BGREEN, Z:EGA.BRED, J:EGA.BBLUE, L:EGA.BROWN };
+  var SHAPES = {
+    I:[[[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],[[0,0,1,0],[0,0,1,0],[0,0,1,0],[0,0,1,0]],[[0,0,0,0],[0,0,0,0],[1,1,1,1],[0,0,0,0]],[[0,1,0,0],[0,1,0,0],[0,1,0,0],[0,1,0,0]]],
+    O:[[[1,1],[1,1]],[[1,1],[1,1]],[[1,1],[1,1]],[[1,1],[1,1]]],
+    T:[[[0,1,0],[1,1,1],[0,0,0]],[[0,1,0],[0,1,1],[0,1,0]],[[0,0,0],[1,1,1],[0,1,0]],[[0,1,0],[1,1,0],[0,1,0]]],
+    S:[[[0,1,1],[1,1,0],[0,0,0]],[[0,1,0],[0,1,1],[0,0,1]],[[0,0,0],[0,1,1],[1,1,0]],[[1,0,0],[1,1,0],[0,1,0]]],
+    Z:[[[1,1,0],[0,1,1],[0,0,0]],[[0,0,1],[0,1,1],[0,1,0]],[[0,0,0],[1,1,0],[0,1,1]],[[0,1,0],[1,1,0],[1,0,0]]],
+    J:[[[1,0,0],[1,1,1],[0,0,0]],[[0,1,1],[0,1,0],[0,1,0]],[[0,0,0],[1,1,1],[0,0,1]],[[0,1,0],[0,1,0],[1,1,0]]],
+    L:[[[0,0,1],[1,1,1],[0,0,0]],[[0,1,0],[0,1,0],[0,1,1]],[[0,0,0],[1,1,1],[1,0,0]],[[1,1,0],[0,1,0],[0,1,0]]]
+  };
+  var BAG = ["I","O","T","S","Z","J","L"];
+
+  var canvas = document.getElementById("c");
+  var ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = false;
+  if (ctx.webkitImageSmoothingEnabled !== undefined) ctx.webkitImageSmoothingEnabled = false;
+
+  function fitCanvas() {
+    var maxW = window.innerWidth - 8;
+    var maxH = window.innerHeight - (window.matchMedia("(pointer: coarse)").matches ? 110 : 8);
+    var s = Math.max(1, Math.floor(Math.min(maxW / 320, maxH / 200)));
+    canvas.style.width = (320 * s) + "px";
+    canvas.style.height = (200 * s) + "px";
+  }
+  fitCanvas();
+  window.addEventListener("resize", fitCanvas);
+
+  function px(x, y, w, h, color) { ctx.fillStyle = color; ctx.fillRect(x|0, y|0, w|0, h|0); }
+  function pset(x, y, color) { ctx.fillStyle = color; ctx.fillRect(x|0, y|0, 1, 1); }
+
+  var FONT = {
+    A:["010","101","111","101","101"], B:["110","101","110","101","110"], C:["011","100","100","100","011"],
+    D:["110","101","101","101","110"], E:["111","100","110","100","111"], F:["111","100","110","100","100"],
+    G:["011","100","101","101","011"], H:["101","101","111","101","101"], I:["111","010","010","010","111"],
+    J:["001","001","001","101","010"], K:["101","101","110","101","101"], L:["100","100","100","100","111"],
+    M:["101","111","101","101","101"], N:["101","111","111","101","101"], O:["010","101","101","101","010"],
+    P:["110","101","110","100","100"], Q:["010","101","101","111","011"], R:["110","101","110","101","101"],
+    S:["011","100","010","001","110"], T:["111","010","010","010","010"], U:["101","101","101","101","111"],
+    V:["101","101","101","101","010"], W:["101","101","101","111","101"], X:["101","101","010","101","101"],
+    Y:["101","101","010","010","010"], Z:["111","001","010","100","111"],
+    "0":["111","101","101","101","111"], "1":["010","110","010","010","111"], "2":["111","001","111","100","111"],
+    "3":["111","001","111","001","111"], "4":["101","101","111","001","001"], "5":["111","100","111","001","111"],
+    "6":["111","100","111","101","111"], "7":["111","001","001","001","001"], "8":["111","101","111","101","111"],
+    "9":["111","101","111","001","111"], " ":["000","000","000","000","000"], ".":["000","000","000","000","010"],
+    ":":["000","010","000","010","000"], "-":["000","000","111","000","000"], "!":["010","010","010","000","010"]
+  };
+  function text(str, x, y, color, scale) {
+    scale = scale || 1;
+    str = String(str).toUpperCase();
+    var cx = x;
+    for (var i = 0; i < str.length; i++) {
+      var g = FONT[str.charAt(i)] || FONT[" "];
+      for (var r = 0; r < 5; r++) for (var c = 0; c < 3; c++) {
+        if (g[r] && g[r].charAt(c) === "1") px(cx + c * scale, y + r * scale, scale, scale, color);
+      }
+      cx += 4 * scale;
+    }
+  }
+  function textCenter(str, y, color, scale) {
+    scale = scale || 1;
+    text(str, ((320 - String(str).length * 4 * scale) / 2)|0, y, color, scale);
+  }
+
+  var AC = window.AudioContext || window.webkitAudioContext;
+  var audio = null, musicOn = true, sfxOn = true, musicTimer = null, musicStep = 0;
+  function ensureAudio() {
+    if (!AC) return;
+    if (!audio) audio = new AC();
+    if (audio.state === "suspended" && audio.resume) audio.resume();
+  }
+  function tone(freq, dur, type, vol, slide) {
+    if (!audio || !sfxOn) return;
+    var t0 = audio.currentTime, o = audio.createOscillator(), g = audio.createGain();
+    o.type = type || "square";
+    o.frequency.setValueAtTime(freq, t0);
+    if (slide) o.frequency.linearRampToValueAtTime(slide, t0 + dur);
+    g.gain.setValueAtTime(vol || 0.06, t0);
+    g.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+    o.connect(g); g.connect(audio.destination);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  function beepSeq(notes, gap, dur) {
+    for (var i = 0; i < notes.length; i++) (function (f, k) {
+      setTimeout(function () { tone(f, dur, "square", 0.07); }, k * gap);
+    })(notes[i], i);
+  }
+  var SFX = {
+    move: function () { tone(180, 0.03, "square", 0.04); },
+    rot: function () { tone(320, 0.05, "square", 0.05); },
+    drop: function () { tone(120, 0.08, "square", 0.06, 60); },
+    lock: function () { tone(90, 0.06, "square", 0.05); },
+    line: function () { tone(520, 0.08, "square", 0.07); setTimeout(function(){ tone(780, 0.1, "square", 0.07); }, 70); },
+    tetris: function () { beepSeq([523,659,784,1046], 80, 0.12); },
+    level: function () { tone(400, 0.08, "square", 0.07); setTimeout(function(){ tone(600, 0.1, "square", 0.07); }, 90); },
+    over: function () { beepSeq([392,349,311,262,196], 140, 0.16); },
+    start: function () { beepSeq([392,523,659,784], 90, 0.12); }
+  };
+  var TUNE = [
+    [659,200],[494,100],[523,100],[587,200],[523,100],[494,100],
+    [440,200],[440,100],[523,100],[659,200],[587,100],[523,100],
+    [494,300],[523,100],[587,200],[659,200],[523,200],[440,200],[440,400],
+    [587,200],[698,100],[880,200],[784,100],[698,100],
+    [659,300],[523,100],[659,200],[587,100],[523,100],
+    [494,200],[494,100],[523,100],[587,200],[659,200],[523,200],[440,200],[440,400]
+  ];
+  function playMusic() {
+    stopMusic();
+    if (!audio || !musicOn) return;
+    musicStep = 0;
+    (function step() {
+      if (!musicOn || state.mode !== "play") { musicTimer = null; return; }
+      var n = TUNE[musicStep % TUNE.length];
+      tone(n[0], n[1] / 1000, "square", 0.035);
+      musicStep++;
+      musicTimer = setTimeout(step, n[1]);
+    })();
+  }
+  function stopMusic() { if (musicTimer) { clearTimeout(musicTimer); musicTimer = null; } }
+
+  function onion(cx, top, body, stripe) {
+    var rows = [[0,1],[1,2],[2,4],[3,6],[4,7],[5,8],[6,8],[7,7],[8,6]];
+    for (var i = 0; i < rows.length; i++) {
+      var ww = rows[i][1];
+      px(cx - ww, top + rows[i][0], ww * 2 + 1, 1, (i % 2 === 0) ? body : stripe);
+    }
+    pset(cx, top - 1, EGA.YELLOW);
+  }
+  function drawSky(reveal) {
+    var yMax = reveal === undefined ? 200 : reveal;
+    for (var y = 0; y < Math.min(140, yMax); y++) {
+      var band = (y / 20)|0;
+      px(0, y, 320, 1, band < 2 ? "#000033" : band < 4 ? "#000055" : "#000066");
+    }
+    var stars = [[12,8],[40,14],[70,6],[110,18],[150,9],[190,15],[230,7],[270,12],[300,20],[28,28],[88,24],[168,30],[248,22],[310,32],[55,40],[200,36]];
+    for (var i = 0; i < stars.length; i++) {
+      if (stars[i][1] < yMax) pset(stars[i][0], stars[i][1], ((frame >> 4) & 1) && i % 3 === 0 ? EGA.LGRAY : EGA.WHITE);
+    }
+  }
+  function drawMoscow() {
+    var base = 148;
+    px(0, base + 30, 320, 22, "#001144");
+    for (var rx = 0; rx < 320; rx += 8) px(rx, base + 32 + (((rx + frame) >> 3) & 1), 4, 1, "#003388");
+    px(0, base + 8, 320, 24, EGA.RED);
+    px(0, base + 6, 320, 2, EGA.BRED);
+    for (var x = 0; x < 320; x += 8) { px(x, base + 2, 5, 6, EGA.RED); px(x + 1, base + 2, 3, 2, EGA.BRED); }
+    for (var w = 4; w < 320; w += 12) px(w, base + 14, 3, 5, "#220000");
+    px(8, base - 28, 36, 36, EGA.DGRAY); px(8, base - 30, 36, 2, EGA.LGRAY);
+    for (var wy = 0; wy < 4; wy++) for (var wx = 0; wx < 3; wx++) {
+      px(12 + wx * 10, base - 24 + wy * 8, 5, 5, (wy + wx + (frame >> 5)) % 4 === 0 ? EGA.YELLOW : "#222244");
+    }
+    var sx = 70;
+    px(sx, base - 50, 22, 58, EGA.RED);
+    px(sx - 4, base - 8, 30, 10, EGA.RED);
+    px(sx + 2, base - 62, 18, 12, EGA.BROWN);
+    px(sx + 5, base - 76, 12, 14, EGA.RED);
+    px(sx + 8, base - 86, 6, 10, EGA.RED);
+    px(sx + 4, base - 46, 14, 12, EGA.WHITE);
+    px(sx + 6, base - 44, 10, 8, EGA.YELLOW);
+    pset(sx + 10, base - 40, EGA.RED);
+    px(sx + 10, base - 40, 4, 1, EGA.RED);
+    px(sx + 10, base - 40, 1, 4, EGA.RED);
+    px(sx + 8, base - 90, 6, 2, EGA.YELLOW);
+    px(sx + 10, base - 92, 2, 6, EGA.YELLOW);
+    pset(sx + 7, base - 89, EGA.YELLOW); pset(sx + 14, base - 89, EGA.YELLOW);
+    px(100, base - 22, 28, 30, "#444466"); px(100, base - 24, 28, 2, EGA.LGRAY);
+    for (var i = 0; i < 3; i++) { px(104 + i * 8, base - 16, 5, 6, "#222244"); px(104 + i * 8, base - 6, 5, 6, EGA.YELLOW); }
+    var bx = 168;
+    px(bx, base - 18, 56, 26, EGA.RED);
+    px(bx + 4, base - 8, 8, 10, "#220000");
+    px(bx + 24, base - 8, 8, 10, "#220000");
+    px(bx + 42, base - 8, 8, 10, "#220000");
+    px(bx + 22, base - 40, 12, 22, EGA.GREEN);
+    px(bx + 24, base - 48, 8, 8, EGA.RED);
+    px(bx + 26, base - 56, 4, 8, EGA.GREEN);
+    onion(bx + 27, base - 68, EGA.YELLOW, EGA.BRED);
+    px(bx + 4, base - 28, 12, 10, EGA.BLUE); onion(bx + 9, base - 40, EGA.BCYAN, EGA.WHITE);
+    px(bx + 14, base - 24, 10, 6, EGA.BROWN); onion(bx + 18, base - 34, EGA.BMAG, EGA.YELLOW);
+    px(bx + 34, base - 26, 10, 8, EGA.BLUE); onion(bx + 38, base - 38, EGA.BGREEN, EGA.WHITE);
+    px(bx + 42, base - 30, 12, 12, EGA.RED); onion(bx + 47, base - 44, EGA.BRED, EGA.YELLOW);
+    px(240, base - 36, 20, 44, EGA.RED); px(244, base - 48, 12, 12, EGA.BROWN);
+    onion(249, base - 60, EGA.GREEN, EGA.YELLOW); px(248, base - 20, 5, 6, "#220000");
+    px(270, base - 26, 42, 34, EGA.DGRAY); px(270, base - 28, 42, 2, EGA.LGRAY);
+    for (var a = 0; a < 3; a++) for (var b = 0; b < 3; b++) {
+      px(276 + b * 12, base - 20 + a * 9, 6, 5, (a + b) % 2 ? EGA.YELLOW : "#222244");
+    }
+    px(0, base + 28, 320, 4, "#222200");
+  }
+
+  var state = {
+    mode:"boot", frame:0, boot:0, board:[], piece:null, next:null, bag:[],
+    x:0, y:0, rot:0, grav:0, das:0, dasDir:0,
+    score:0, lines:0, level:0, hi:0, clearRows:[], clearT:0, overT:0
+  };
+  var frame = 0, keys = {}, prevKeys = {};
+  function just(k) { return keys[k] && !prevKeys[k]; }
+  function zeros() { var a = []; for (var i = 0; i < CONFIG.cols; i++) a[i] = 0; return a; }
+  function emptyBoard() {
+    var b = [];
+    for (var r = 0; r < CONFIG.rows; r++) b[r] = zeros();
+    return b;
+  }
+  function refillBag() {
+    var a = BAG.slice(), i, j, t;
+    for (i = a.length - 1; i > 0; i--) { j = (Math.random() * (i + 1))|0; t = a[i]; a[i] = a[j]; a[j] = t; }
+    state.bag = state.bag.concat(a);
+  }
+  function takePiece() { if (state.bag.length < 2) refillBag(); return state.bag.shift(); }
+  function cells(type, rot) { return SHAPES[type][rot]; }
+  function collides(x, y, rot) {
+    var sh = cells(state.piece, rot), r, c, xx, yy;
+    for (r = 0; r < sh.length; r++) for (c = 0; c < sh[r].length; c++) {
+      if (!sh[r][c]) continue;
+      xx = x + c; yy = y + r;
+      if (xx < 0 || xx >= CONFIG.cols || yy >= CONFIG.rows) return true;
+      if (yy >= 0 && state.board[yy][xx]) return true;
+    }
+    return false;
+  }
+  function spawn() {
+    state.piece = state.next || takePiece();
+    state.next = takePiece();
+    state.rot = 0;
+    state.x = ((CONFIG.cols - SHAPES[state.piece][0][0].length) / 2)|0;
+    state.y = 0; state.grav = 0;
+    if (collides(state.x, state.y, state.rot)) {
+      state.mode = "over"; state.overT = 0; stopMusic(); SFX.over();
+    }
+  }
+  function lockPiece() {
+    var sh = cells(state.piece, state.rot), r, c, xx, yy, full = [], row, col, ok;
+    for (r = 0; r < sh.length; r++) for (c = 0; c < sh[r].length; c++) {
+      if (!sh[r][c]) continue;
+      xx = state.x + c; yy = state.y + r;
+      if (yy >= 0 && yy < CONFIG.rows && xx >= 0 && xx < CONFIG.cols) state.board[yy][xx] = state.piece;
+    }
+    SFX.lock();
+    for (row = 0; row < CONFIG.rows; row++) {
+      ok = true;
+      for (col = 0; col < CONFIG.cols; col++) if (!state.board[row][col]) ok = false;
+      if (ok) full.push(row);
+    }
+    if (full.length) {
+      state.mode = "clear"; state.clearRows = full; state.clearT = 0;
+      if (full.length === 4) SFX.tetris(); else SFX.line();
+    } else spawn();
+  }
+  function applyClear() {
+    var n = state.clearRows.length, keep = [], r, i, nb = [], pad, nl;
+    for (r = 0; r < CONFIG.rows; r++) if (state.clearRows.indexOf(r) === -1) keep.push(state.board[r]);
+    pad = CONFIG.rows - keep.length;
+    for (i = 0; i < pad; i++) nb.push(zeros());
+    state.board = nb.concat(keep);
+    state.lines += n;
+    state.score += CONFIG.points[n] * (state.level + 1);
+    nl = Math.min(CONFIG.maxLevel, (state.lines / CONFIG.linesPerLevel)|0);
+    if (nl > state.level) { state.level = nl; SFX.level(); }
+    if (state.score > state.hi) {
+      state.hi = state.score;
+      try { localStorage.setItem(CONFIG.hiKey, String(state.hi)); } catch (e) {}
+    }
+    state.mode = "play";
+    spawn();
+  }
+  function hardDrop() {
+    var d = 0;
+    while (!collides(state.x, state.y + 1, state.rot)) { state.y++; d++; }
+    state.score += d * 2; SFX.drop(); lockPiece();
+  }
+  function softDrop() {
+    if (!collides(state.x, state.y + 1, state.rot)) { state.y++; state.score += 1; state.grav = 0; }
+    else lockPiece();
+  }
+  function tryMove(dx) {
+    if (!collides(state.x + dx, state.y, state.rot)) { state.x += dx; SFX.move(); return true; }
+    return false;
+  }
+  function tryRot(dir) {
+    var nr = (state.rot + dir + 4) % 4, kicks = [0,-1,1,-2,2], i;
+    for (i = 0; i < kicks.length; i++) {
+      if (!collides(state.x + kicks[i], state.y, nr)) {
+        state.x += kicks[i]; state.rot = nr; SFX.rot(); return;
+      }
+    }
+  }
+  function gravityFrames() { return CONFIG.gravity[Math.min(state.level, CONFIG.gravity.length - 1)]; }
+
+  var OX = 16, OY = 16;
+  function drawBlock(x, y, type) {
+    var s = CONFIG.cell, col = PIECE_COLOR[type] || EGA.LGRAY;
+    px(x, y, s, s, col);
+    px(x, y, s - 1, 1, EGA.WHITE);
+    px(x, y, 1, s - 1, EGA.WHITE);
+    px(x + s - 1, y + 1, 1, s - 1, EGA.BLACK);
+    px(x + 1, y + s - 1, s - 1, 1, EGA.BLACK);
+  }
+  function drawPiece(type, x, y, rot) {
+    var sh = cells(type, rot), r, c, yy;
+    for (r = 0; r < sh.length; r++) for (c = 0; c < sh[r].length; c++) {
+      if (!sh[r][c]) continue;
+      yy = y + r; if (yy < 0) continue;
+      drawBlock(OX + (x + c) * CONFIG.cell, OY + yy * CONFIG.cell, type);
+    }
+  }
+  function drawBoard() {
+    var r, c, t, clearing, phase;
+    px(OX - 2, OY - 2, CONFIG.cols * CONFIG.cell + 4, CONFIG.rows * CONFIG.cell + 4, EGA.LGRAY);
+    px(OX - 1, OY - 1, CONFIG.cols * CONFIG.cell + 2, CONFIG.rows * CONFIG.cell + 2, EGA.DGRAY);
+    px(OX, OY, CONFIG.cols * CONFIG.cell, CONFIG.rows * CONFIG.cell, EGA.BLACK);
+    for (r = 0; r < CONFIG.rows; r++) {
+      clearing = state.clearRows.indexOf(r) !== -1 && state.mode === "clear";
+      for (c = 0; c < CONFIG.cols; c++) {
+        t = state.board[r][c];
+        if (clearing) {
+          phase = (state.clearT >> 1) & 1;
+          if (phase && t) drawBlock(OX + c * CONFIG.cell, OY + r * CONFIG.cell, t);
+          else px(OX + c * CONFIG.cell, OY + r * CONFIG.cell, CONFIG.cell, CONFIG.cell, EGA.WHITE);
+        } else if (t) drawBlock(OX + c * CONFIG.cell, OY + r * CONFIG.cell, t);
+        else if ((r + c) & 1) pset(OX + c * CONFIG.cell + 3, OY + r * CONFIG.cell + 3, "#111111");
+      }
+    }
+    if (state.mode === "play" && state.piece) drawPiece(state.piece, state.x, state.y, state.rot);
+  }
+  function padNum(n, w) { var s = String(n|0); while (s.length < w) s = "0" + s; return s; }
+  function drawMiniNext() {
+    if (!state.next) return;
+    var sh = cells(state.next, 0), r, c;
+    for (r = 0; r < sh.length; r++) for (c = 0; c < sh[r].length; c++) {
+      if (sh[r][c]) drawBlock(116 + c * 8, 139 + r * 8, state.next);
+    }
+  }
+  function panel() {
+    text("TETRIS", 112, 10, EGA.YELLOW, 2);
+    text("MOSCOW", 112, 24, EGA.BRED, 1);
+    text("SCORE", 112, 40, EGA.CYAN, 1); text(padNum(state.score, 6), 112, 48, EGA.WHITE, 1);
+    text("HI", 112, 60, EGA.CYAN, 1); text(padNum(state.hi, 6), 112, 68, EGA.WHITE, 1);
+    text("LINES", 112, 80, EGA.CYAN, 1); text(padNum(state.lines, 4), 112, 88, EGA.WHITE, 1);
+    text("LEVEL", 112, 100, EGA.CYAN, 1); text(padNum(state.level, 2), 112, 108, EGA.WHITE, 1);
+    text("NEXT", 112, 124, EGA.CYAN, 1);
+    px(112, 134, 40, 40, EGA.DGRAY); px(113, 135, 38, 38, EGA.BLACK);
+    drawMiniNext();
+    text("LEFT RIGHT", 112, 178, EGA.DGRAY, 1);
+    text("UP ROT SPC", 112, 186, EGA.DGRAY, 1);
+  }
+  function drawMiniMoscow() {
+    var ox = 232;
+    px(ox, 0, 88, 200, "#000044");
+    for (var y = 0; y < 80; y++) px(ox, y, 88, 1, y < 30 ? "#000033" : "#000055");
+    px(ox, 150, 88, 20, EGA.RED);
+    for (var x = ox; x < 320; x += 6) px(x, 146, 4, 5, EGA.RED);
+    onion(ox + 44, 110, EGA.YELLOW, EGA.BRED);
+    px(ox + 40, 128, 10, 22, EGA.GREEN);
+    onion(ox + 24, 124, EGA.BCYAN, EGA.WHITE);
+    onion(ox + 62, 122, EGA.BRED, EGA.YELLOW);
+    px(ox + 20, 136, 8, 14, EGA.BLUE);
+    px(ox + 58, 136, 8, 14, EGA.RED);
+    px(ox + 8, 120, 8, 30, EGA.RED);
+    pset(ox + 11, 114, EGA.YELLOW);
+    px(ox, 170, 88, 30, "#001144");
+  }
+  function drawBoot() {
+    px(0, 0, 320, 200, EGA.BLACK);
+    var rev = (state.boot * 2)|0;
+    drawSky(rev);
+    if (state.boot > 40) drawMoscow();
+    if (state.boot < 80) { for (var y = 0; y < 200; y++) if (y > rev) px(0, y, 320, 1, EGA.BLACK); }
+    if (state.boot > 90) textCenter("TETRIS", 16, EGA.YELLOW, 3);
+    if (state.boot > 110) textCenter("MOSCOW 1984", 40, EGA.BRED, 1);
+    if (state.boot > 130 && ((frame >> 4) & 1)) textCenter("PRESS ENTER", 188, EGA.WHITE, 1);
+  }
+  function drawTitle() {
+    drawSky(200); drawMoscow();
+    px(40, 8, 240, 36, EGA.BLACK); px(42, 10, 236, 32, EGA.BLUE);
+    textCenter("TETRIS", 14, EGA.YELLOW, 3);
+    textCenter("MOSCOW 1984", 42, EGA.BRED, 1);
+    textCenter("CLASSIC PIXEL", 54, EGA.CYAN, 1);
+    if ((frame >> 4) & 1) textCenter("PRESS ENTER", 188, EGA.WHITE, 1);
+    text("HI " + padNum(state.hi, 6), 8, 188, EGA.LGRAY, 1);
+  }
+  function drawPlay() {
+    px(0, 0, 320, 200, EGA.BLACK);
+    drawMiniMoscow(); drawBoard(); panel();
+    if (state.mode === "pause") { px(OX + 8, OY + 70, 64, 20, EGA.BLACK); text("PAUSE", OX + 16, OY + 76, EGA.YELLOW, 1); }
+    if (state.mode === "over") {
+      px(OX + 4, OY + 64, 72, 36, EGA.BLACK);
+      text("GAME", OX + 20, OY + 70, EGA.BRED, 1);
+      text("OVER", OX + 20, OY + 80, EGA.BRED, 1);
+      if ((frame >> 4) & 1) text("ENTER", OX + 16, OY + 90, EGA.WHITE, 1);
+    }
+  }
+
+  function loadHi() {
+    try { state.hi = parseInt(localStorage.getItem(CONFIG.hiKey) || "0", 10) || 0; } catch (e) { state.hi = 0; }
+  }
+  function startGame() {
+    state.board = emptyBoard(); state.bag = []; state.score = 0; state.lines = 0; state.level = 0;
+    state.clearRows = []; state.next = null; state.mode = "play";
+    spawn(); SFX.start(); playMusic();
+  }
+  function tickPlay() {
+    if (just("ArrowUp") || just("KeyX") || just("KeyW")) tryRot(1);
+    if (just("KeyZ")) tryRot(-1);
+    if (just("Space")) hardDrop();
+    if (just("KeyP") || just("Escape")) { state.mode = "pause"; stopMusic(); return; }
+    var dir = 0;
+    if (keys["ArrowLeft"] || keys["KeyA"]) dir = -1;
+    if (keys["ArrowRight"] || keys["KeyD"]) dir = 1;
+    if (dir !== 0) {
+      if (state.dasDir !== dir) { state.dasDir = dir; state.das = 0; tryMove(dir); }
+      else { state.das++; if (state.das >= CONFIG.das && ((state.das - CONFIG.das) % CONFIG.arr === 0)) tryMove(dir); }
+    } else { state.dasDir = 0; state.das = 0; }
+    if (keys["ArrowDown"] || keys["KeyS"]) { if (state.frame % 2 === 0) softDrop(); }
+    else {
+      state.grav++;
+      if (state.grav >= gravityFrames()) {
+        state.grav = 0;
+        if (!collides(state.x, state.y + 1, state.rot)) state.y++; else lockPiece();
+      }
+    }
+  }
+  function update() {
+    frame++; state.frame = frame;
+    if (state.mode === "boot") {
+      state.boot++;
+      if (state.boot > 160) state.mode = "title";
+      if (just("Enter") || just("Space")) { state.mode = "title"; state.boot = 200; }
+    } else if (state.mode === "title") {
+      if (just("Enter") || just("Space")) startGame();
+    } else if (state.mode === "play") tickPlay();
+    else if (state.mode === "clear") { state.clearT++; if (state.clearT >= 24) applyClear(); }
+    else if (state.mode === "pause") {
+      if (just("KeyP") || just("Enter") || just("Escape")) { state.mode = "play"; playMusic(); }
+    } else if (state.mode === "over") {
+      state.overT++;
+      if (state.overT < CONFIG.rows) {
+        var row = CONFIG.rows - 1 - state.overT, c;
+        if (row >= 0) for (c = 0; c < CONFIG.cols; c++) if (!state.board[row][c]) state.board[row][c] = BAG[c % 7];
+      }
+      if (just("Enter") || just("Space")) state.mode = "title";
+    }
+    if (just("KeyM")) { musicOn = !musicOn; if (musicOn && state.mode === "play") playMusic(); else stopMusic(); }
+    prevKeys = {}; for (var k in keys) prevKeys[k] = keys[k];
+  }
+  function draw() {
+    if (state.mode === "boot") drawBoot();
+    else if (state.mode === "title") drawTitle();
+    else drawPlay();
+  }
+  var acc = 0, last = 0, stepMs = 1000 / CONFIG.fps;
+  function loop(t) {
+    if (!last) last = t;
+    acc += t - last; last = t;
+    if (acc > 200) acc = 200;
+    while (acc >= stepMs) { update(); acc -= stepMs; }
+    draw();
+    requestAnimationFrame(loop);
+  }
+  document.addEventListener("keydown", function (e) {
+    keys[e.code] = true; ensureAudio();
+    if (e.code === "ArrowUp" || e.code === "ArrowDown" || e.code === "ArrowLeft" || e.code === "ArrowRight" || e.code === "Space") e.preventDefault();
+  });
+  document.addEventListener("keyup", function (e) { keys[e.code] = false; });
+  function bindHold(id, code) {
+    var el = document.getElementById(id); if (!el) return;
+    function down(ev) { ev.preventDefault(); keys[code] = true; ensureAudio(); }
+    function up(ev) { ev.preventDefault(); keys[code] = false; }
+    el.addEventListener("touchstart", down, false);
+    el.addEventListener("touchend", up, false);
+    el.addEventListener("mousedown", down);
+    el.addEventListener("mouseup", up);
+  }
+  bindHold("bLeft","ArrowLeft"); bindHold("bRight","ArrowRight");
+  bindHold("bDown","ArrowDown"); bindHold("bUp","ArrowUp");
+  bindHold("bDrop","Space"); bindHold("bStart","Enter");
+  loadHi();
+  requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
